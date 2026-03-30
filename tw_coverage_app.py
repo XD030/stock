@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
@@ -69,20 +70,16 @@ def extract_sections(text: str) -> Dict[str, str]:
     current_key = None
     buffer: List[str] = []
 
-    lines = text.splitlines()
-
-    for line in lines:
+    for line in text.splitlines():
         stripped = line.strip()
 
         if stripped.startswith("## "):
-            # 👉 存前一段
             if current_key is not None:
                 sections[current_key] = "\n".join(buffer).strip()
 
             raw_header = stripped[3:].strip()
             key = normalize_header(raw_header)
 
-            # 🔥 關鍵：如果不是我們要的 section → 忽略
             if key is None:
                 current_key = None
                 buffer = []
@@ -90,16 +87,15 @@ def extract_sections(text: str) -> Dict[str, str]:
 
             current_key = key
             buffer = []
-
         else:
             if current_key is not None:
                 buffer.append(line)
 
-    # 👉 收尾
     if current_key is not None:
         sections[current_key] = "\n".join(buffer).strip()
 
     return sections
+
 
 def parse_title(text: str, fallback: str) -> str:
     m = TITLE_RE.search(text)
@@ -167,7 +163,6 @@ def load_reports(root_dir_str: str):
     return reports, df
 
 
-
 def load_network(root_dir_str: str):
     graph_path = Path(root_dir_str) / "network" / "graph_data.json"
     if not graph_path.exists():
@@ -188,7 +183,6 @@ def load_network(root_dir_str: str):
         vals.sort(key=lambda x: x["weight"], reverse=True)
 
     return {"neighbors": neighbors, "nodes": data.get("nodes", [])}
-
 
 
 def load_themes(root_dir_str: str):
@@ -213,24 +207,179 @@ def guess_root() -> str:
 def metric_card(label: str, value: str):
     st.markdown(
         f"""
-        <div style="padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
-            <div style="font-size:0.9rem;color:#6b7280;">{label}</div>
-            <div style="font-size:1.1rem;font-weight:700;word-break:break-word;">{value or "-"}</div>
+        <div style="
+            padding:16px 18px;
+            border:1px solid #2a2f3a;
+            border-radius:16px;
+            background:#111827;
+            min-height:110px;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+        ">
+            <div style="
+                font-size:0.95rem;
+                color:#9ca3af;
+                margin-bottom:8px;
+                font-weight:600;
+            ">
+                {label}
+            </div>
+            <div style="
+                font-size:1.6rem;
+                font-weight:800;
+                color:#f9fafb;
+                line-height:1.25;
+                word-break:break-word;
+            ">
+                {value or "-"}
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-
 def login_gate():
     st.title("🔐 Login")
     password = st.text_input("Password", type="password")
-
     if password != "114514":
         st.warning("請輸入正確密碼")
         st.stop()
-
     st.success("登入成功")
+
+
+def split_finance_subsections(fin_text: str) -> Dict[str, str]:
+    patterns = [
+        ("估值指標", r"###\s+估值指標.*?(?=\n###\s+|$)"),
+        ("年度關鍵財務數據", r"###\s+年度關鍵財務數據.*?(?=\n###\s+|$)"),
+        ("季度關鍵財務數據", r"###\s+季度關鍵財務數據.*?(?=\n###\s+|$)"),
+    ]
+    out = {}
+    for name, pattern in patterns:
+        m = re.search(pattern, fin_text, flags=re.S)
+        if m:
+            out[name] = m.group(0).strip()
+    return out
+
+
+def extract_markdown_tables(text: str) -> List[str]:
+    lines = text.splitlines()
+    tables = []
+    current = []
+
+    for line in lines:
+        if "|" in line:
+            current.append(line)
+        else:
+            if current:
+                if len(current) >= 2:
+                    tables.append("\n".join(current))
+                current = []
+    if current and len(current) >= 2:
+        tables.append("\n".join(current))
+    return tables
+
+
+def markdown_table_to_df(table_md: str) -> Optional[pd.DataFrame]:
+    try:
+        lines = [line.strip() for line in table_md.splitlines() if line.strip()]
+        if len(lines) < 2:
+            return None
+
+        cleaned_lines = []
+        for i, line in enumerate(lines):
+            if i == 1 and re.fullmatch(r"\|?[\-\:\|\s]+\|?", line):
+                continue
+            cleaned_lines.append(line.strip("|"))
+
+        csv_like = "\n".join(cleaned_lines).replace("|", ",")
+        df = pd.read_csv(StringIO(csv_like))
+        df.columns = [str(c).strip() for c in df.columns]
+
+        for col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
+        return df
+    except Exception:
+        return None
+
+
+def parse_finance_tables(fin_text: str) -> Dict[str, Optional[pd.DataFrame]]:
+    subsections = split_finance_subsections(fin_text)
+    result = {
+        "估值指標": None,
+        "年度關鍵財務數據": None,
+        "季度關鍵財務數據": None,
+    }
+
+    for key, text in subsections.items():
+        tables = extract_markdown_tables(text)
+        if tables:
+            result[key] = markdown_table_to_df(tables[0])
+
+    return result
+
+
+def make_numeric_if_possible(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in out.columns[1:]:
+        out[col] = pd.to_numeric(out[col].replace("-", pd.NA), errors="ignore")
+    return out
+
+
+def display_finance_section(fin_text: str):
+    st.markdown("### 財務概況")
+    tables = parse_finance_tables(fin_text)
+
+    subtab1, subtab2, subtab3, subtab4 = st.tabs(
+        ["估值指標", "年度財務", "季度財務", "原始內容"]
+    )
+
+    with subtab1:
+        val_df = tables.get("估值指標")
+        if val_df is not None and not val_df.empty:
+            st.dataframe(val_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("沒有解析到估值指標表格。")
+
+    with subtab2:
+        annual_df = tables.get("年度關鍵財務數據")
+        if annual_df is not None and not annual_df.empty:
+            annual_df = make_numeric_if_possible(annual_df)
+            st.dataframe(annual_df, use_container_width=True, hide_index=True)
+
+            metric_col = annual_df.columns[0]
+            if "Revenue" in annual_df[metric_col].astype(str).values:
+                revenue_row = annual_df[annual_df[metric_col].astype(str) == "Revenue"]
+                if not revenue_row.empty:
+                    chart_df = revenue_row.set_index(metric_col).T
+                    chart_df.columns = ["Revenue"]
+                    st.line_chart(chart_df)
+        else:
+            st.info("沒有解析到年度財務表格。")
+
+    with subtab3:
+        quarter_df = tables.get("季度關鍵財務數據")
+        if quarter_df is not None and not quarter_df.empty:
+            quarter_df = make_numeric_if_possible(quarter_df)
+            st.dataframe(quarter_df, use_container_width=True, hide_index=True)
+
+            metric_col = quarter_df.columns[0]
+            if "Revenue" in quarter_df[metric_col].astype(str).values:
+                revenue_row = quarter_df[quarter_df[metric_col].astype(str) == "Revenue"]
+                if not revenue_row.empty:
+                    chart_df = revenue_row.set_index(metric_col).T
+                    chart_df.columns = ["Quarterly Revenue"]
+                    st.line_chart(chart_df)
+        else:
+            st.info("沒有解析到季度財務表格。")
+
+    with subtab4:
+        st.markdown(fin_text)
+
+
+def build_company_label(row: pd.Series) -> str:
+    return f"{row['ticker']} {row['company']}｜{row['sector']}"
 
 
 def show_report(report: Report, row: pd.Series, network_data: dict):
@@ -264,13 +413,9 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
     with tabs[4]:
         fin = report.sections.get("財務概況", "")
         if fin:
-            st.markdown(fin)
+            display_finance_section(fin)
         else:
-            st.error("沒有抓到財務區塊")
-            st.write("目前抓到的 sections：", list(report.sections.keys()))
-            st.write("所有二級標題：")
-            all_h2 = [line.strip() for line in report.raw_text.splitlines() if line.strip().startswith("## ")]
-            st.write(all_h2)
+            st.info("此公司目前沒有獨立財務區塊。")
 
     with tabs[5]:
         st.write(f"Wikilinks 數量：{len(report.wikilinks)}")
@@ -290,6 +435,7 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
                 st.markdown("### 可參考的 Wikilinks")
                 st.write("、 ".join(report.wikilinks[:20]))
 
+
 def show_search_results(filtered: pd.DataFrame, reports_map: Dict[str, Report], network_data: dict):
     if filtered.empty:
         st.warning("沒有找到符合條件的公司。")
@@ -302,11 +448,106 @@ def show_search_results(filtered: pd.DataFrame, reports_map: Dict[str, Report], 
         hide_index=True,
     )
 
-    options = [f"{r.ticker} {r.company}｜{r.sector}" for _, r in filtered.iterrows()]
+    options = [build_company_label(r) for _, r in filtered.iterrows()]
     selected = st.selectbox("選一家公司查看完整內容", options, index=0)
     ticker = selected.split(" ", 1)[0]
     row = filtered[filtered["ticker"] == ticker].iloc[0]
     show_report(reports_map[row["path"]], row, network_data)
+
+
+def extract_comparison_snapshot(report: Report, row: pd.Series) -> Dict[str, str]:
+    fin = report.sections.get("財務概況", "")
+    valuation_df = parse_finance_tables(fin).get("估值指標") if fin else None
+
+    pe = forward_pe = ps = pb = ev_ebitda = "-"
+    if valuation_df is not None and not valuation_df.empty:
+        cols = valuation_df.columns.tolist()
+        if len(cols) >= 5 and len(valuation_df) >= 1:
+            first_row = valuation_df.iloc[0].tolist()
+            if len(first_row) >= 5:
+                pe = str(first_row[0])
+                forward_pe = str(first_row[1])
+                ps = str(first_row[2])
+                pb = str(first_row[3])
+                ev_ebitda = str(first_row[4])
+
+    return {
+        "ticker": report.ticker,
+        "company": report.company,
+        "sector": row.get("sector", ""),
+        "industry": row.get("industry", ""),
+        "board": row.get("board", ""),
+        "market_cap": row.get("market_cap", ""),
+        "enterprise_value": row.get("enterprise_value", ""),
+        "wikilinks": len(report.wikilinks),
+        "P/E (TTM)": pe,
+        "Forward P/E": forward_pe,
+        "P/S (TTM)": ps,
+        "P/B": pb,
+        "EV/EBITDA": ev_ebitda,
+    }
+
+
+def show_comparison_page(df: pd.DataFrame, reports_map: Dict[str, Report]):
+    st.subheader("公司比較")
+
+    labels = [build_company_label(r) for _, r in df.sort_values(["sector", "ticker"]).iterrows()]
+    selected_labels = st.multiselect(
+        "選擇 2~4 家公司比較",
+        labels,
+        max_selections=4,
+    )
+
+    if len(selected_labels) < 2:
+        st.info("請至少選擇 2 家公司。")
+        return
+
+    selected_rows = []
+    for label in selected_labels:
+        ticker = label.split(" ", 1)[0]
+        row = df[df["ticker"] == ticker].iloc[0]
+        selected_rows.append(row)
+
+    comparison_rows = []
+    annual_tables = {}
+
+    for row in selected_rows:
+        report = reports_map[row["path"]]
+        comparison_rows.append(extract_comparison_snapshot(report, row))
+
+        fin = report.sections.get("財務概況", "")
+        if fin:
+            annual_df = parse_finance_tables(fin).get("年度關鍵財務數據")
+            if annual_df is not None and not annual_df.empty:
+                annual_tables[report.company] = annual_df
+
+    comp_df = pd.DataFrame(comparison_rows)
+    st.markdown("### 基本比較")
+    st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+    if annual_tables:
+        st.markdown("### 年度 Revenue 比較")
+        revenue_frames = []
+
+        for company, table in annual_tables.items():
+            metric_col = table.columns[0]
+            revenue_row = table[table[metric_col].astype(str) == "Revenue"]
+            if not revenue_row.empty:
+                chart_df = revenue_row.set_index(metric_col).T
+                chart_df.columns = [company]
+                revenue_frames.append(chart_df)
+
+        if revenue_frames:
+            merged = pd.concat(revenue_frames, axis=1)
+            st.line_chart(merged)
+
+    st.markdown("### 個別公司快速摘要")
+    for row in selected_rows:
+        report = reports_map[row["path"]]
+        with st.expander(f"{report.ticker} {report.company}"):
+            st.write(f"產業：{row.get('industry', '-')}")
+            st.write(f"Wikilinks：{len(report.wikilinks)}")
+            st.markdown(clean_markdown(report.sections.get("業務簡介", "尚無資料")))
 
 
 def main():
@@ -330,14 +571,14 @@ def main():
     themes = load_themes(root_dir)
     reports_map = {str(r.path): r for r in reports}
 
-    mode = st.sidebar.radio("功能", ["公司瀏覽", "關鍵字搜尋", "主題瀏覽", "資料概覽"])
+    mode = st.sidebar.radio("功能", ["公司瀏覽", "關鍵字搜尋", "公司比較", "主題瀏覽", "資料概覽"])
 
     if mode == "公司瀏覽":
         sectors = ["全部"] + sorted(df["sector"].dropna().unique().tolist())
         sector = st.sidebar.selectbox("產業分類", sectors)
         sub_df = df if sector == "全部" else df[df["sector"] == sector]
         company_options = sub_df.sort_values(["sector", "ticker"])
-        labels = [f"{r.ticker} {r.company}｜{r.sector}" for _, r in company_options.iterrows()]
+        labels = [build_company_label(r) for _, r in company_options.iterrows()]
         selected = st.sidebar.selectbox("公司", labels)
         ticker = selected.split(" ", 1)[0]
         row = company_options[company_options["ticker"] == ticker].iloc[0]
@@ -345,19 +586,29 @@ def main():
 
     elif mode == "關鍵字搜尋":
         st.subheader("搜尋公司 / 技術 / 客戶 / 供應鏈關鍵字")
+
         keyword = st.text_input("輸入關鍵字", placeholder="例如：CoWoS、台積電、液冷散熱、Apple")
-        sector_filter = st.multiselect("限制產業（可不選）", sorted(df["sector"].unique().tolist()))
+        sector_filter = st.multiselect("限制產業（可不選）", sorted(df["sector"].dropna().unique().tolist()))
         min_links = st.slider("最少 wikilink 數量", 0, int(df["wikilink_count"].max()), 0)
+        sort_by = st.selectbox("排序欄位", ["wikilink_count", "ticker", "company", "sector"])
+        sort_desc = st.checkbox("遞減排序", value=True if sort_by == "wikilink_count" else False)
 
         filtered = df.copy()
+
         if sector_filter:
             filtered = filtered[filtered["sector"].isin(sector_filter)]
+
         filtered = filtered[filtered["wikilink_count"] >= min_links]
+
         if keyword.strip():
             kw = keyword.strip().lower()
             filtered = filtered[filtered["search_blob"].str.contains(re.escape(kw), regex=True, na=False)]
-        filtered = filtered.sort_values(["wikilink_count", "ticker"], ascending=[False, True])
+
+        filtered = filtered.sort_values(sort_by, ascending=not sort_desc, kind="stable")
         show_search_results(filtered, reports_map, network_data)
+
+    elif mode == "公司比較":
+        show_comparison_page(df, reports_map)
 
     elif mode == "主題瀏覽":
         st.subheader("themes 資料夾內容")
