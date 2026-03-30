@@ -64,7 +64,7 @@ def clean_markdown(text: str) -> str:
 def extract_sections(text: str) -> Dict[str, str]:
     positions = []
     for header in SECTION_HEADERS:
-        m = re.search(rf"^##\s+{re.escape(header)}\s*$", text, flags=re.MULTILINE)
+        m = re.search(rf"^##\s*{re.escape(header)}", text, flags=re.MULTILINE)
         if m:
             positions.append((header, m.start(), m.end()))
     positions.sort(key=lambda x: x[1])
