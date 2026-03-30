@@ -71,6 +71,25 @@ def extract_sections(text: str) -> Dict[str, str]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         body = text[start:end].strip()
 
+        if "業務簡介" in raw_header:
+            sections["業務簡介"] = body
+        elif "供應鏈位置" in raw_header:
+            sections["供應鏈位置"] = body
+        elif "主要客戶及供應商" in raw_header:
+            sections["主要客戶及供應商"] = body
+        elif "財務概況" in raw_header:
+            sections["財務概況"] = body
+
+    return sections
+    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
+    sections: Dict[str, str] = {}
+
+    for i, match in enumerate(matches):
+        raw_header = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+
         if raw_header.startswith("業務簡介"):
             sections["業務簡介"] = body
         elif raw_header.startswith("供應鏈位置"):
