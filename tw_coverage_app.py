@@ -321,6 +321,9 @@ def main():
         top = df.sort_values("wikilink_count", ascending=False).head(30)
         st.dataframe(top[["ticker", "company", "sector", "wikilink_count"]], use_container_width=True, hide_index=True)
 
+        st.markdown("---")
+        st.caption("資料來源：My-TW-Coverage (MIT License)")
+
         if network_data.get("nodes"):
             st.markdown("### network 節點類型")
             node_df = pd.DataFrame(network_data["nodes"])
