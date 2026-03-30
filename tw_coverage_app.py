@@ -9,6 +9,17 @@ from typing import Dict, List, Optional
 import pandas as pd
 import streamlit as st
 
+
+st.title("🔐 Login")
+
+password = st.text_input("Password", type="password")
+
+if password != "114514":
+    st.warning("請輸入正確密碼")
+    st.stop()
+
+st.success("登入成功")
+
 st.set_page_config(page_title="台股 Coverage Explorer", layout="wide")
 
 SECTION_HEADERS = [
