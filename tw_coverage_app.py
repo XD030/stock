@@ -286,23 +286,29 @@ def markdown_table_to_df(table_md: str) -> Optional[pd.DataFrame]:
         if len(lines) < 2:
             return None
 
-        cleaned_lines = []
-        for i, line in enumerate(lines):
-            if i == 1 and re.fullmatch(r"\|?[\-\:\|\s]+\|?", line):
+        # 去掉分隔線
+        cleaned = []
+        for line in lines:
+            if re.fullmatch(r"\|?[\-\:\|\s]+\|?", line):
                 continue
-            cleaned_lines.append(line.strip("|"))
+            cleaned.append(line.strip("|"))
 
-        csv_like = "\n".join(cleaned_lines).replace("|", ",")
+        # 👉 檢查是不是「橫向表」
+        if len(cleaned) == 2:
+            headers = [x.strip() for x in cleaned[0].split("|")]
+            values = [x.strip() for x in cleaned[1].split("|")]
+
+            df = pd.DataFrame([values], columns=headers)
+            return df
+
+        # 👉 一般表格
+        csv_like = "\n".join(cleaned).replace("|", ",")
         df = pd.read_csv(StringIO(csv_like))
         df.columns = [str(c).strip() for c in df.columns]
-
-        for col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-
         return df
+
     except Exception:
         return None
-
 
 def parse_finance_tables(fin_text: str) -> Dict[str, Optional[pd.DataFrame]]:
     subsections = split_finance_subsections(fin_text)
