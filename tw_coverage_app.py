@@ -285,8 +285,10 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
             rel_df.columns = ["關聯節點", "權重"]
             st.dataframe(rel_df, use_container_width=True, hide_index=True)
         else:
-            st.info("這家公司沒有在 graph_data.json 中找到對應節點，或目前未建立 network 資料。")
-
+            st.info("此公司目前沒有 graph 關聯資料（可能尚未建立連線），但 Wikilinks 仍可正常使用。")
+            if report.wikilinks:
+                st.markdown("### 可參考的 Wikilinks")
+                st.write("、 ".join(report.wikilinks[:20]))
 
 def show_search_results(filtered: pd.DataFrame, reports_map: Dict[str, Report], network_data: dict):
     if filtered.empty:
