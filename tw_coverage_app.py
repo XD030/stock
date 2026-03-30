@@ -75,25 +75,31 @@ def extract_sections(text: str) -> Dict[str, str]:
         stripped = line.strip()
 
         if stripped.startswith("## "):
+            # 👉 存前一段
             if current_key is not None:
                 sections[current_key] = "\n".join(buffer).strip()
 
             raw_header = stripped[3:].strip()
-            raw_header = raw_header.replace("\u3000", " ")
-            raw_header = raw_header.replace("\ufeff", "")
-            raw_header = raw_header.strip()
+            key = normalize_header(raw_header)
 
-            current_key = normalize_header(raw_header)
+            # 🔥 關鍵：如果不是我們要的 section → 忽略
+            if key is None:
+                current_key = None
+                buffer = []
+                continue
+
+            current_key = key
             buffer = []
+
         else:
             if current_key is not None:
                 buffer.append(line)
 
+    # 👉 收尾
     if current_key is not None:
         sections[current_key] = "\n".join(buffer).strip()
 
     return sections
-
 
 def parse_title(text: str, fallback: str) -> str:
     m = TITLE_RE.search(text)
