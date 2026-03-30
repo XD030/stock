@@ -279,29 +279,30 @@ def extract_markdown_tables(text: str) -> List[str]:
         tables.append("\n".join(current))
     return tables
 
-
 def markdown_table_to_df(table_md: str) -> Optional[pd.DataFrame]:
     try:
         lines = [line.strip() for line in table_md.splitlines() if line.strip()]
+
+        # ❌ 移除 ### 標題行（關鍵修正）
+        lines = [line for line in lines if not line.startswith("###")]
+
         if len(lines) < 2:
             return None
 
-        # 去掉分隔線
+        # ❌ 移除分隔線
         cleaned = []
         for line in lines:
             if re.fullmatch(r"\|?[\-\:\|\s]+\|?", line):
                 continue
             cleaned.append(line.strip("|"))
 
-        # 👉 檢查是不是「橫向表」
+        # 👉 橫向表（你的這種）
         if len(cleaned) == 2:
             headers = [x.strip() for x in cleaned[0].split("|")]
             values = [x.strip() for x in cleaned[1].split("|")]
+            return pd.DataFrame([values], columns=headers)
 
-            df = pd.DataFrame([values], columns=headers)
-            return df
-
-        # 👉 一般表格
+        # 👉 一般表
         csv_like = "\n".join(cleaned).replace("|", ",")
         df = pd.read_csv(StringIO(csv_like))
         df.columns = [str(c).strip() for c in df.columns]
@@ -343,11 +344,22 @@ def display_finance_section(fin_text: str):
 
     with subtab1:
         val_df = tables.get("估值指標")
+
         if val_df is not None and not val_df.empty:
+
+            # 🔥 KPI 卡片（你要加的地方就在這）
+            cols = st.columns(len(val_df.columns))
+            for i, col in enumerate(val_df.columns):
+                with cols[i]:
+                    metric_card(col, val_df.iloc[0][col])
+
+            st.markdown("---")
+
+            # 👉 保留原表格（可選）
             st.dataframe(val_df, use_container_width=True, hide_index=True)
+
         else:
             st.info("沒有解析到估值指標表格。")
-
     with subtab2:
         annual_df = tables.get("年度關鍵財務數據")
         if annual_df is not None and not annual_df.empty:
