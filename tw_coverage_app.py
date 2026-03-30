@@ -62,19 +62,30 @@ def clean_markdown(text: str) -> str:
 
 
 def extract_sections(text: str) -> Dict[str, str]:
-    positions = []
-    for header in SECTION_HEADERS:
-        m = re.search(rf"^##\s*{re.escape(header)}", text, flags=re.MULTILINE)
-        if m:
-            positions.append((header, m.start(), m.end()))
-    positions.sort(key=lambda x: x[1])
-    sections: Dict[str, str] = {}
-    for idx, (header, start, end) in enumerate(positions):
-        next_start = positions[idx + 1][1] if idx + 1 < len(positions) else len(text)
-        body = text[end:next_start].strip()
-        sections[header] = body
-    return sections
+    # 先抓所有二級標題，例如：
+    # ## 業務簡介
+    # ## 財務概況（單位: 百萬台幣）
+    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
 
+    sections: Dict[str, str] = {}
+
+    for i, match in enumerate(matches):
+        raw_header = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+
+        # 標題正規化：只要開頭符合就歸到固定欄位
+        if raw_header.startswith("業務簡介"):
+            sections["業務簡介"] = body
+        elif raw_header.startswith("供應鏈位置"):
+            sections["供應鏈位置"] = body
+        elif raw_header.startswith("主要客戶及供應商"):
+            sections["主要客戶及供應商"] = body
+        elif raw_header.startswith("財務概況"):
+            sections["財務概況"] = body
+
+    return sections
 
 def parse_title(text: str, fallback: str) -> str:
     m = TITLE_RE.search(text)
