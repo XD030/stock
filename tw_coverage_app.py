@@ -51,6 +51,24 @@ def clean_markdown(text: str) -> str:
     text = re.sub(r"`([^`]+)`", r"\1", text)
     return text.strip()
 
+def normalize_header(header: str) -> str | None:
+    header = header.strip()
+    header = header.replace("\u3000", " ")
+    header = header.replace("\ufeff", "")
+    header = header.strip()
+
+    header_clean = header.replace(" ", "")
+
+    if "業務簡介" in header_clean:
+        return "業務簡介"
+    if "供應鏈位置" in header_clean:
+        return "供應鏈位置"
+    if "主要客戶及供應商" in header_clean:
+        return "主要客戶及供應商"
+    if "財務概況" in header_clean:
+        return "財務概況"
+
+    return None
 
 def extract_sections(text: str) -> Dict[str, str]:
     sections: Dict[str, str] = {}
@@ -60,17 +78,25 @@ def extract_sections(text: str) -> Dict[str, str]:
     lines = text.splitlines()
 
     def normalize_header(header: str) -> str | None:
-        header = header.strip().replace("\ufeff", "")
-        if "業務簡介" in header:
-            return "業務簡介"
-        if "供應鏈位置" in header:
-            return "供應鏈位置"
-        if "主要客戶及供應商" in header:
-            return "主要客戶及供應商"
-        if "財務概況" in header:
-            return "財務概況"
-        return None
+        header = header.strip()
+        header = header.replace("\u3000", " ")
+        header = header.replace("\ufeff", "")
+        header = header.strip()
 
+        header_clean = header.replace(" ", "")
+
+        # 🔥 這裡是你問的那行（保險）
+        if "財務概況" in header_clean:
+            return "財務概況"
+
+        if "業務簡介" in header_clean:
+            return "業務簡介"
+        if "供應鏈位置" in header_clean:
+            return "供應鏈位置"
+        if "主要客戶及供應商" in header_clean:
+            return "主要客戶及供應商"
+
+        return None
     for line in lines:
         stripped = line.strip()
 
@@ -81,6 +107,10 @@ def extract_sections(text: str) -> Dict[str, str]:
                 sections[current_key] = "\n".join(buffer).strip()
 
             raw_header = stripped[3:].strip()
+            raw_header = raw_header.replace("\u3000", " ")  # 全形空白
+            raw_header = raw_header.replace("\ufeff", "")   # BOM
+            raw_header = raw_header.strip()
+
             current_key = normalize_header(raw_header)
             buffer = []
         else:
@@ -263,7 +293,7 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
             st.write("所有二級標題：")
             all_h2 = [line.strip() for line in report.raw_text.splitlines() if line.strip().startswith("## ")]
             st.write(all_h2)
-            
+
     with tabs[5]:
         st.write(f"Wikilinks 數量：{len(report.wikilinks)}")
         if report.wikilinks:
