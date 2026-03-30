@@ -12,14 +12,6 @@ import streamlit as st
 
 st.set_page_config(page_title="台股 Coverage Explorer", layout="wide")
 
-
-SECTION_HEADERS = [
-    "業務簡介",
-    "供應鏈位置",
-    "主要客戶及供應商",
-    "財務概況",
-]
-
 DEFAULT_ROOT_CANDIDATES = [
     Path("."),
     Path("./My-TW-Coverage-master"),
@@ -51,6 +43,7 @@ def clean_markdown(text: str) -> str:
     text = re.sub(r"`([^`]+)`", r"\1", text)
     return text.strip()
 
+
 def normalize_header(header: str) -> str | None:
     header = header.strip()
     header = header.replace("\u3000", " ")
@@ -70,45 +63,24 @@ def normalize_header(header: str) -> str | None:
 
     return None
 
+
 def extract_sections(text: str) -> Dict[str, str]:
     sections: Dict[str, str] = {}
     current_key = None
-    buffer = []
+    buffer: List[str] = []
 
     lines = text.splitlines()
 
-    def normalize_header(header: str) -> str | None:
-        header = header.strip()
-        header = header.replace("\u3000", " ")
-        header = header.replace("\ufeff", "")
-        header = header.strip()
-
-        header_clean = header.replace(" ", "")
-
-        # 🔥 這裡是你問的那行（保險）
-        if "財務概況" in header_clean:
-            return "財務概況"
-
-        if "業務簡介" in header_clean:
-            return "業務簡介"
-        if "供應鏈位置" in header_clean:
-            return "供應鏈位置"
-        if "主要客戶及供應商" in header_clean:
-            return "主要客戶及供應商"
-
-        return None
     for line in lines:
         stripped = line.strip()
 
-        # 只抓二級標題：## xxx
         if stripped.startswith("## "):
-            # 先存前一段
             if current_key is not None:
                 sections[current_key] = "\n".join(buffer).strip()
 
             raw_header = stripped[3:].strip()
-            raw_header = raw_header.replace("\u3000", " ")  # 全形空白
-            raw_header = raw_header.replace("\ufeff", "")   # BOM
+            raw_header = raw_header.replace("\u3000", " ")
+            raw_header = raw_header.replace("\ufeff", "")
             raw_header = raw_header.strip()
 
             current_key = normalize_header(raw_header)
@@ -117,11 +89,11 @@ def extract_sections(text: str) -> Dict[str, str]:
             if current_key is not None:
                 buffer.append(line)
 
-    # 收尾
     if current_key is not None:
         sections[current_key] = "\n".join(buffer).strip()
 
     return sections
+
 
 def parse_title(text: str, fallback: str) -> str:
     m = TITLE_RE.search(text)
@@ -133,6 +105,7 @@ def parse_title(text: str, fallback: str) -> str:
 def parse_report(md_path: Path, sector: str) -> Report:
     raw = md_path.read_text(encoding="utf-8")
     stem = md_path.stem
+
     if "_" in stem:
         ticker, company = stem.split("_", 1)
     else:
@@ -151,7 +124,6 @@ def parse_report(md_path: Path, sector: str) -> Report:
     )
 
 
-@st.cache_data(show_spinner=False)
 def load_reports(root_dir_str: str):
     root_dir = Path(root_dir_str)
     reports_dir = root_dir / "Pilot_Reports"
@@ -189,7 +161,7 @@ def load_reports(root_dir_str: str):
     return reports, df
 
 
-@st.cache_data(show_spinner=False)
+
 def load_network(root_dir_str: str):
     graph_path = Path(root_dir_str) / "network" / "graph_data.json"
     if not graph_path.exists():
@@ -212,7 +184,7 @@ def load_network(root_dir_str: str):
     return {"neighbors": neighbors, "nodes": data.get("nodes", [])}
 
 
-@st.cache_data(show_spinner=False)
+
 def load_themes(root_dir_str: str):
     themes_dir = Path(root_dir_str) / "themes"
     out = {}
