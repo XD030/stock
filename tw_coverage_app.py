@@ -62,6 +62,25 @@ def clean_markdown(text: str) -> str:
 
 
 def extract_sections(text: str) -> Dict[str, str]:
+    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
+    sections: Dict[str, str] = {}
+
+    for i, match in enumerate(matches):
+        raw_header = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+
+        if raw_header.startswith("業務簡介"):
+            sections["業務簡介"] = body
+        elif raw_header.startswith("供應鏈位置"):
+            sections["供應鏈位置"] = body
+        elif raw_header.startswith("主要客戶及供應商"):
+            sections["主要客戶及供應商"] = body
+        elif raw_header.startswith("財務概況"):
+            sections["財務概況"] = body
+
+    return sections
     # 先抓所有二級標題，例如：
     # ## 業務簡介
     # ## 財務概況（單位: 百萬台幣）
@@ -230,8 +249,14 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
         st.markdown(clean_markdown(report.sections.get("主要客戶及供應商", "尚無資料")))
 
     with tabs[4]:
-        fin = report.sections.get("財務概況", "尚無資料")
-        st.markdown(fin)
+        fin = report.sections.get("財務概況", "")
+        if fin:
+            st.markdown(fin)
+        else:
+            st.error("沒有抓到財務區塊")
+            st.write(report.sections.keys())
+            fin = report.sections.get("財務概況", "尚無資料")
+            st.markdown(fin)
 
     with tabs[5]:
         st.write(f"Wikilinks 數量：{len(report.wikilinks)}")
