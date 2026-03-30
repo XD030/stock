@@ -4,23 +4,14 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
 
 
-st.title("🔐 Login")
-
-password = st.text_input("Password", type="password")
-
-if password != "114514":
-    st.warning("請輸入正確密碼")
-    st.stop()
-
-st.success("登入成功")
-
 st.set_page_config(page_title="台股 Coverage Explorer", layout="wide")
+
 
 SECTION_HEADERS = [
     "業務簡介",
@@ -62,66 +53,43 @@ def clean_markdown(text: str) -> str:
 
 
 def extract_sections(text: str) -> Dict[str, str]:
-    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
     sections: Dict[str, str] = {}
+    current_key = None
+    buffer = []
 
-    for i, match in enumerate(matches):
-        raw_header = match.group(1).strip()
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
+    lines = text.splitlines()
 
-        if "業務簡介" in raw_header:
-            sections["業務簡介"] = body
-        elif "供應鏈位置" in raw_header:
-            sections["供應鏈位置"] = body
-        elif "主要客戶及供應商" in raw_header:
-            sections["主要客戶及供應商"] = body
-        elif "財務概況" in raw_header:
-            sections["財務概況"] = body
+    def normalize_header(header: str) -> str | None:
+        header = header.strip().replace("\ufeff", "")
+        if "業務簡介" in header:
+            return "業務簡介"
+        if "供應鏈位置" in header:
+            return "供應鏈位置"
+        if "主要客戶及供應商" in header:
+            return "主要客戶及供應商"
+        if "財務概況" in header:
+            return "財務概況"
+        return None
 
-    return sections
-    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
-    sections: Dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
 
-    for i, match in enumerate(matches):
-        raw_header = match.group(1).strip()
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
+        # 只抓二級標題：## xxx
+        if stripped.startswith("## "):
+            # 先存前一段
+            if current_key is not None:
+                sections[current_key] = "\n".join(buffer).strip()
 
-        if raw_header.startswith("業務簡介"):
-            sections["業務簡介"] = body
-        elif raw_header.startswith("供應鏈位置"):
-            sections["供應鏈位置"] = body
-        elif raw_header.startswith("主要客戶及供應商"):
-            sections["主要客戶及供應商"] = body
-        elif raw_header.startswith("財務概況"):
-            sections["財務概況"] = body
+            raw_header = stripped[3:].strip()
+            current_key = normalize_header(raw_header)
+            buffer = []
+        else:
+            if current_key is not None:
+                buffer.append(line)
 
-    return sections
-    # 先抓所有二級標題，例如：
-    # ## 業務簡介
-    # ## 財務概況（單位: 百萬台幣）
-    matches = list(re.finditer(r"^##\s+(.+)$", text, flags=re.MULTILINE))
-
-    sections: Dict[str, str] = {}
-
-    for i, match in enumerate(matches):
-        raw_header = match.group(1).strip()
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
-
-        # 標題正規化：只要開頭符合就歸到固定欄位
-        if raw_header.startswith("業務簡介"):
-            sections["業務簡介"] = body
-        elif raw_header.startswith("供應鏈位置"):
-            sections["供應鏈位置"] = body
-        elif raw_header.startswith("主要客戶及供應商"):
-            sections["主要客戶及供應商"] = body
-        elif raw_header.startswith("財務概況"):
-            sections["財務概況"] = body
+    # 收尾
+    if current_key is not None:
+        sections[current_key] = "\n".join(buffer).strip()
 
     return sections
 
@@ -139,6 +107,7 @@ def parse_report(md_path: Path, sector: str) -> Report:
         ticker, company = stem.split("_", 1)
     else:
         ticker, company = "", stem
+
     return Report(
         path=md_path,
         sector=sector,
@@ -195,16 +164,21 @@ def load_network(root_dir_str: str):
     graph_path = Path(root_dir_str) / "network" / "graph_data.json"
     if not graph_path.exists():
         return {}
+
     data = json.loads(graph_path.read_text(encoding="utf-8"))
     neighbors: Dict[str, List[dict]] = {}
+
     for link in data.get("links", []):
         s = link.get("source")
         t = link.get("target")
         w = link.get("weight", 0)
+
         neighbors.setdefault(s, []).append({"name": t, "weight": w})
         neighbors.setdefault(t, []).append({"name": s, "weight": w})
+
     for key, vals in neighbors.items():
         vals.sort(key=lambda x: x["weight"], reverse=True)
+
     return {"neighbors": neighbors, "nodes": data.get("nodes", [])}
 
 
@@ -214,10 +188,11 @@ def load_themes(root_dir_str: str):
     out = {}
     if not themes_dir.exists():
         return out
+
     for md in sorted(themes_dir.glob("*.md")):
         out[md.stem] = md.read_text(encoding="utf-8")
-    return out
 
+    return out
 
 
 def guess_root() -> str:
@@ -232,11 +207,22 @@ def metric_card(label: str, value: str):
         f"""
         <div style="padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
             <div style="font-size:0.9rem;color:#6b7280;">{label}</div>
-            <div style="font-size:1.1rem;font-weight:700;word-break:break-word;">{value or '-'} </div>
+            <div style="font-size:1.1rem;font-weight:700;word-break:break-word;">{value or "-"}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def login_gate():
+    st.title("🔐 Login")
+    password = st.text_input("Password", type="password")
+
+    if password != "114514":
+        st.warning("請輸入正確密碼")
+        st.stop()
+
+    st.success("登入成功")
 
 
 def show_report(report: Report, row: pd.Series, network_data: dict):
@@ -273,15 +259,17 @@ def show_report(report: Report, row: pd.Series, network_data: dict):
             st.markdown(fin)
         else:
             st.error("沒有抓到財務區塊")
-            st.write(report.sections.keys())
-            fin = report.sections.get("財務概況", "尚無資料")
-            st.markdown(fin)
-
+            st.write("目前抓到的 sections：", list(report.sections.keys()))
+            st.write("所有二級標題：")
+            all_h2 = [line.strip() for line in report.raw_text.splitlines() if line.strip().startswith("## ")]
+            st.write(all_h2)
+            
     with tabs[5]:
         st.write(f"Wikilinks 數量：{len(report.wikilinks)}")
         if report.wikilinks:
             st.caption("點下面可複製名字再去搜尋")
             st.write("、 ".join(report.wikilinks[:120]))
+
         related = network_data.get("neighbors", {}).get(report.company, [])
         if related:
             st.markdown("### 圖譜關聯（依共現強度排序）")
@@ -312,6 +300,8 @@ def show_search_results(filtered: pd.DataFrame, reports_map: Dict[str, Report], 
 
 
 def main():
+    login_gate()
+
     st.title("台股 Coverage Explorer")
     st.caption("用比較像 app 的方式瀏覽 My-TW-Coverage 資料庫")
 
@@ -371,6 +361,7 @@ def main():
         total_companies = len(df)
         total_sectors = df["sector"].nunique()
         total_links = int(df["wikilink_count"].sum())
+
         c1, c2, c3 = st.columns(3)
         with c1:
             metric_card("公司數", f"{total_companies:,}")
@@ -385,10 +376,11 @@ def main():
 
         st.markdown("### Wikilink 最多的公司")
         top = df.sort_values("wikilink_count", ascending=False).head(30)
-        st.dataframe(top[["ticker", "company", "sector", "wikilink_count"]], use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        st.caption("資料來源：My-TW-Coverage (MIT License)")
+        st.dataframe(
+            top[["ticker", "company", "sector", "wikilink_count"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
         if network_data.get("nodes"):
             st.markdown("### network 節點類型")
@@ -396,6 +388,9 @@ def main():
             if not node_df.empty and "category" in node_df.columns:
                 cat = node_df.groupby("category").size().reset_index(name="count")
                 st.dataframe(cat, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.caption("資料來源：My-TW-Coverage (MIT License)")
 
 
 if __name__ == "__main__":
